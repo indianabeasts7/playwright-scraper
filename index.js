@@ -18,19 +18,38 @@ app.get("/scrape", async (req, res) => {
 
         const page = await browser.newPage();
 
-        console.log("Trying:", url);
+        let apiResponse = null;
+
+        // Capture USSSA API responses
+        page.on("response", async (response) => {
+            const requestUrl = response.url();
+
+            if (requestUrl.includes("api/tournaments/searchFastpitch")) {
+                try {
+                    apiResponse = await response.json();
+                } catch (err) {
+                    console.log("JSON parse failed:", err);
+                }
+            }
+        });
+
+        console.log("Navigating:", url);
 
         await page.goto(url, {
-            waitUntil: "domcontentloaded",
+            waitUntil: "networkidle",
             timeout: 60000
         });
 
+        // Wait a bit for JS API requests
         await page.waitForTimeout(4000);
 
-        const html = await page.content();
         await browser.close();
 
-        return res.send(html);
+        if (apiResponse) {
+            return res.json(apiResponse);
+        }
+
+        return res.send(await page.content());
 
     } catch (error) {
         if (browser) await browser.close();
