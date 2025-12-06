@@ -1,19 +1,18 @@
-# Use Playwright image that contains browsers and runtime
+# Dockerfile - Playwright base (browsers included)
 FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
-# Copy package files (cache layer)
+# Copy package manifests and install
 COPY package.json package-lock.json* ./
+RUN npm install --omit=dev
 
-# Install production dependencies
-RUN npm ci --only=production
-
-# Copy source
+# Copy app
 COPY . .
 
-# Expose port (Render will detect)
+# Data directory (persist via volume if you want)
+RUN mkdir -p /app/data
+
 EXPOSE 10000
 
-# Start service
 CMD ["node", "index.js"]
