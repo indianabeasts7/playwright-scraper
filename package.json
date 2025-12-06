@@ -1,17 +1,15 @@
 {
-  "name": "playwright-fastpitch-scraper",
+  "name": "playwright-scraper",
   "version": "1.0.0",
-  "description": "Playwright scraper service for fastpitch tournament sites (raw HTML endpoints + weekly snapshot)",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
-  "license": "MIT",
   "dependencies": {
+    "express": "^4.19.2",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "node-cron": "^3.0.2",
-    "playwright": "1.57.0"
+    "playwright": "^1.57.0",
+    "cheerio": "^1.0.0-rc.12"
   }
 }
