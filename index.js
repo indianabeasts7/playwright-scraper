@@ -1,76 +1,93 @@
+
 const express = require("express");
 const cors = require("cors");
-const playwright = require("playwright");
+const { chromium } = require("playwright");
 
 const app = express();
 app.use(cors());
 
-// ---- SCRAPE ROUTE ----
+// Helper: wait
+const wait = (ms) => new Promise(res => setTimeout(res, ms));
+
 app.get("/scrape", async (req, res) => {
+
     const url = req.query.url;
-    if (!url) {
-        return res.status(400).json({ error: "Missing ?url=" });
-    }
+    if (!url) return res.status(400).json({ error: "Missing ?url=" });
+
+    console.log("\n--------------------------------------");
+    console.log("SCRAPE REQUEST:", url);
+    console.log("--------------------------------------\n");
 
     let browser;
 
     try {
-        browser = await playwright.chromium.launch({
+        browser = await chromium.launch({
             headless: true,
-            args: ["--no-sandbox"]
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-web-security",
+                "--no-zygote",
+                "--single-process"
+            ]
         });
 
         const page = await browser.newPage();
 
-        let usssaData = null;
+        // Retry logic (3 attempts)
+        let html = null;
 
-        // 🔥 Capture the dynamic API request
-        page.on("response", async (response) => {
-            const requestUrl = response.url();
+        for (let attempt = 1; attempt <= 3; attempt++) {
 
-            if (requestUrl.includes("searchFastpitch")) {
-                try {
-                    usssaData = await response.json();
-                    console.log("Captured USSSA API!");
-                } catch (err) {
-                    console.log("Failed to parse fastpitch JSON:", err);
+            try {
+                console.log(`Attempt ${attempt} → ${url}`);
+
+                await page.goto(url, {
+                    waitUntil: "domcontentloaded",
+                    timeout: 60000
+                });
+
+                // Allow JS to render
+                await wait(4000);
+
+                html = await page.content();
+
+                // Check if page returned a firewall / forbidden message
+                if (html.includes("Access Denied") || html.includes("Forbidden")) {
+                    console.log("Blocked → retrying...");
+                    await wait(3000);
+                    continue;
                 }
+
+                break; // success
+
+            } catch (err) {
+                console.log("Error on attempt", attempt, err.toString());
+                await wait(2000);
             }
-        });
-
-        console.log("Navigating:", url);
-
-        await page.goto(url, {
-            waitUntil: "domcontentloaded",
-            timeout: 60000
-        });
-
-        await page.waitForTimeout(4000); // allow JS requests to fire
+        }
 
         await browser.close();
 
-        // 🎯 If we captured USSSA backend event data, return it
-        if (usssaData) {
-            return res.json(usssaData);
-        }
+        if (!html) return res.status(500).json({ error: "Failed after 3 retries" });
 
-        // ❗ If no API captured, return HTML
-        return res.send(await page.content());
+        return res.send(html);
 
-    } catch (err) {
+    } catch (e) {
         if (browser) await browser.close();
-        return res.status(500).json({ error: err.toString() });
+        console.log("FATAL ERROR:", e);
+        return res.status(500).json({ error: e.toString() });
     }
 });
 
-// ---- HOME ROUTE ----
 app.get("/", (req, res) => {
-    res.send("Playwright Scraper is running");
+    res.send("Playwright Scraper is running ✔");
 });
 
-// ---- START SERVER ----
 const PORT = process.env.PORT || 10000;
+
 app.listen(PORT, () => {
     console.log("Scraper running on port", PORT);
 });
-
