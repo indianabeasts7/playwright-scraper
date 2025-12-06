@@ -1,40 +1,70 @@
+
 const express = require("express");
-const { chromium } = require("playwright");
+const cors = require("cors");
+const playwright = require("playwright");
 
 const app = express();
-app.use(express.json());
+app.use(cors());
+
+const PORT = process.env.PORT || 10000;
+
+async function scrapeSite(url, selector) {
+  const browser = await playwright.chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: "networkidle" });
+
+  await page.waitForTimeout(3000);
+
+  const html = await page.content();
+
+  await browser.close();
+
+  return html;
+}
+
+// ===========================
+// 🚀 SCRAPE ROUTE
+// ===========================
+app.get("/scrape", async (req, res) => {
+  try {
+    console.log("Scrape request received...");
+
+    const urls = [
+      "https://usssa.com/fastpitch/eventSearch/",
+      "https://usfastpitch.com/tournaments",
+      "https://pgfusa.com/tournaments",
+      "https://play.bullpentournaments.com/events",
+      "https://softballconnected.com/tournaments"
+    ];
+
+    const results = {};
+
+    for (let url of urls) {
+      console.log("Scraping:", url);
+      const html = await scrapeSite(url);
+      results[url] = html ? "HTML loaded" : "Failed";
+    }
+
+    res.json({
+      status: "success",
+      message: "Scraped all sites",
+      results
+    });
+
+  } catch (err) {
+    console.error("Scrape error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 app.get("/", (req, res) => {
   res.send("Playwright scraper is running.");
 });
 
-// Main scraping endpoint
-app.post("/scrape", async (req, res) => {
-  const { url } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: "Missing 'url' in request body." });
-  }
-
-  try {
-    const browser = await chromium.launch({
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      headless: true
-    });
-
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-
-    // Get raw HTML
-    const html = await page.content();
-
-    await browser.close();
-    return res.json({ html });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.toString() });
-  }
+app.listen(PORT, () => {
+  console.log(`Scraper running on port ${PORT}`);
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Scraper running on port ${PORT}`));
