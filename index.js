@@ -5,7 +5,6 @@ const playwright = require("playwright");
 const app = express();
 app.use(cors());
 
-// ----------- SCRAPE ENDPOINT --------------
 app.get("/scrape", async (req, res) => {
     const url = req.query.url;
     if (!url) return res.status(400).json({ error: "Missing ?url=" });
@@ -26,7 +25,6 @@ app.get("/scrape", async (req, res) => {
             timeout: 60000
         });
 
-        // Allow JS rendering
         await page.waitForTimeout(4000);
 
         const html = await page.content();
@@ -40,14 +38,11 @@ app.get("/scrape", async (req, res) => {
     }
 });
 
-// ----------- ROOT ENDPOINT --------------
 app.get("/", (req, res) => {
-    res.send("Playwright Scraper is running. Use /scrape?url=...");
+    res.send("Playwright Scraper is running");
 });
 
-// ----------- REQUIRED FOR RENDER ----------
 const PORT = process.env.PORT || 10000;
-
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Scraper running on port ${PORT}`);
+app.listen(PORT, () => {
+    console.log("Scraper running on port", PORT);
 });

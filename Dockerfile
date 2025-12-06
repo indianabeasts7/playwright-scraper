@@ -5,14 +5,14 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install only production dependencies (faster/smaller)
+# Install dependencies
 RUN npm install --production
 
-# Copy the rest of the project
+# Copy project
 COPY . .
 
-# Expose port Render should detect
+# Expose port
 EXPOSE 10000
 
-# Start the server
+# Start server
 CMD ["node", "index.js"]
