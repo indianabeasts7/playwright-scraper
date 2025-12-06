@@ -1,18 +1,18 @@
-# Dockerfile - Playwright base (browsers included)
 FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
-# Copy package manifests and install
+# Copy package files
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
 
-# Copy app
+# Install ONLY production dependencies
+RUN npm install --production
+
+# Copy all source files
 COPY . .
 
-# Data directory (persist via volume if you want)
-RUN mkdir -p /app/data
-
+# Expose port Render will detect
 EXPOSE 10000
 
+# Start server
 CMD ["node", "index.js"]
