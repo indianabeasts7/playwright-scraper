@@ -15,7 +15,11 @@ async function scrapeSite(url, selector) {
   });
 
   const page = await browser.newPage();
-  await page.goto(url, { waitUntil: "networkidle" });
+  await page.goto(url, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000
+});
+
 
   await page.waitForTimeout(3000);
 
@@ -30,41 +34,43 @@ async function scrapeSite(url, selector) {
 // 🚀 SCRAPE ROUTE
 // ===========================
 app.get("/scrape", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: "Missing ?url=" });
+
+  const browser = await playwright.chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
   try {
-    console.log("Scrape request received...");
+    // retry logic
+    let success = false;
+    let html = "";
 
-    const urls = [
-      "https://usssa.com/fastpitch/eventSearch/",
-      "https://usfastpitch.com/tournaments",
-      "https://pgfusa.com/tournaments",
-      "https://play.bullpentournaments.com/events",
-      "https://softballconnected.com/tournaments"
-    ];
+    for (let i = 0; i < 3 && !success; i++) {
+      try {
+        console.log(`Attempt ${i + 1} → ${url}`);
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000
+        });
 
-    const results = {};
+        // wait additional time for JS-rendered content
+        await page.waitForTimeout(3000);
 
-    for (let url of urls) {
-      console.log("Scraping:", url);
-      const html = await scrapeSite(url);
-      results[url] = html ? "HTML loaded" : "Failed";
+        html = await page.content();
+        success = true;
+
+      } catch (err) {
+        console.log("Attempt failed:", err.message);
+        if (i === 2) throw err;
+      }
     }
 
-    res.json({
-      status: "success",
-      message: "Scraped all sites",
-      results
-    });
+    await browser.close();
+    res.send(html);
 
-  } catch (err) {
-    console.error("Scrape error:", err);
-    res.status(500).json({ error: String(err) });
+  } catch (error) {
+    await browser.close();
+    res.status(500).json({ error: error.toString() });
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("Playwright scraper is running.");
-});
-
-app.listen(PORT, () => {
-  console.log(`Scraper running on port ${PORT}`);
-});
