@@ -1,4 +1,5 @@
 
+
 const express = require("express");
 const cors = require("cors");
 const playwright = require("playwright");
@@ -6,71 +7,46 @@ const playwright = require("playwright");
 const app = express();
 app.use(cors());
 
-const PORT = process.env.PORT || 10000;
-
-async function scrapeSite(url, selector) {
-  const browser = await playwright.chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const page = await browser.newPage();
-  await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000
-});
-
-
-  await page.waitForTimeout(3000);
-
-  const html = await page.content();
-
-  await browser.close();
-
-  return html;
-}
-
-// ===========================
-// 🚀 SCRAPE ROUTE
-// ===========================
 app.get("/scrape", async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).json({ error: "Missing ?url=" });
+    const url = req.query.url;
+    if (!url) return res.status(400).json({ error: "Missing ?url=" });
 
-  const browser = await playwright.chromium.launch({ headless: true });
-  const page = await browser.newPage();
-
-  try {
-    // retry logic
-    let success = false;
-    let html = "";
-
-    for (let i = 0; i < 3 && !success; i++) {
-      try {
-        console.log(`Attempt ${i + 1} → ${url}`);
-        await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: 60000
+    let browser;
+    try {
+        browser = await playwright.chromium.launch({
+            headless: true,
+            args: ["--no-sandbox"]
         });
 
-        // wait additional time for JS-rendered content
-        await page.waitForTimeout(3000);
+        const page = await browser.newPage();
 
-        html = await page.content();
-        success = true;
+        console.log("Trying:", url);
 
-      } catch (err) {
-        console.log("Attempt failed:", err.message);
-        if (i === 2) throw err;
-      }
+        // FIX: do NOT use networkidle (breaks USSSA)
+        await page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: 60000
+        });
+
+        // Give JS some time to render
+        await page.waitForTimeout(4000);
+
+        const html = await page.content();
+        await browser.close();
+
+        return res.send(html);
+
+    } catch (error) {
+        if (browser) await browser.close();
+        return res.status(500).json({ error: error.toString() });
     }
-
-    await browser.close();
-    res.send(html);
-
-  } catch (error) {
-    await browser.close();
-    res.status(500).json({ error: error.toString() });
-  }
 });
 
+app.get("/", (req, res) => {
+    res.send("Playwright Scraper is running");
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log("Scraper running on port", PORT);
+});
