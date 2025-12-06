@@ -5,11 +5,15 @@ const playwright = require("playwright");
 const app = express();
 app.use(cors());
 
+// ---- SCRAPE ROUTE ----
 app.get("/scrape", async (req, res) => {
     const url = req.query.url;
-    if (!url) return res.status(400).json({ error: "Missing ?url=" });
+    if (!url) {
+        return res.status(400).json({ error: "Missing ?url=" });
+    }
 
     let browser;
+
     try {
         browser = await playwright.chromium.launch({
             headless: true,
@@ -18,17 +22,18 @@ app.get("/scrape", async (req, res) => {
 
         const page = await browser.newPage();
 
-        let apiResponse = null;
+        let usssaData = null;
 
-        // Capture USSSA API responses
+        // 🔥 Capture the dynamic API request
         page.on("response", async (response) => {
             const requestUrl = response.url();
 
-            if (requestUrl.includes("api/tournaments/searchFastpitch")) {
+            if (requestUrl.includes("searchFastpitch")) {
                 try {
-                    apiResponse = await response.json();
+                    usssaData = await response.json();
+                    console.log("Captured USSSA API!");
                 } catch (err) {
-                    console.log("JSON parse failed:", err);
+                    console.log("Failed to parse fastpitch JSON:", err);
                 }
             }
         });
@@ -36,32 +41,36 @@ app.get("/scrape", async (req, res) => {
         console.log("Navigating:", url);
 
         await page.goto(url, {
-            waitUntil: "networkidle",
+            waitUntil: "domcontentloaded",
             timeout: 60000
         });
 
-        // Wait a bit for JS API requests
-        await page.waitForTimeout(4000);
+        await page.waitForTimeout(4000); // allow JS requests to fire
 
         await browser.close();
 
-        if (apiResponse) {
-            return res.json(apiResponse);
+        // 🎯 If we captured USSSA backend event data, return it
+        if (usssaData) {
+            return res.json(usssaData);
         }
 
+        // ❗ If no API captured, return HTML
         return res.send(await page.content());
 
-    } catch (error) {
+    } catch (err) {
         if (browser) await browser.close();
-        return res.status(500).json({ error: error.toString() });
+        return res.status(500).json({ error: err.toString() });
     }
 });
 
+// ---- HOME ROUTE ----
 app.get("/", (req, res) => {
     res.send("Playwright Scraper is running");
 });
 
+// ---- START SERVER ----
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log("Scraper running on port", PORT);
 });
+
