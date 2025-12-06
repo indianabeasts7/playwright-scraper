@@ -1,13 +1,14 @@
 {
   "name": "playwright-scraper",
   "version": "1.0.0",
-  "description": "Headless Playwright scraper microservice",
   "main": "index.js",
+  "license": "MIT",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "express": "^4.19.2",
     "cors": "^2.8.5",
     "playwright": "1.57.0"
   }
