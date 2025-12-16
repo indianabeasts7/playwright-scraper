@@ -1,149 +1,125 @@
-
- const express = require("express");
+const express = require("express");
 const cors = require("cors");
-const { chromium } = require("playwright");
+const fetch = require("node-fetch");
 const cheerio = require("cheerio");
+const { chromium } = require("playwright-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth")();
+
+chromium.use(StealthPlugin);
 
 const app = express();
 app.use(cors());
 
-// Helper: wait
-const wait = (ms) => new Promise(res => setTimeout(res, ms));
+const PORT = process.env.PORT || 10000;
 
-/* ============================================================
-   USSSA DIRECT API SCRAPER
-   ============================================================ */
-async function scrapeUSSSA_API() {
-    const url = "https://usssa.com/api/event-search?sport=fastpitch&season=2025";
+const USSSA_URL = "https://usssa.com/fastpitch/eventSearch";
 
-    try {
-        const response = await fetch(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json"
-            }
-        });
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-        if (!response.ok) {
-            console.log("USSSA API HTTP error:", response.status);
-            return { error: "Failed to reach USSSA API" };
-        }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-        const data = await response.json();
+/* -------------------------------------------------- */
+/* ROOT HEALTH CHECK                                  */
+/* -------------------------------------------------- */
+app.get("/", (req, res) => {
+  res.send("Playwright Scraper is running ✔");
+});
 
-        if (!data || !data.Events) {
-            console.log("USSSA API returned unexpected format");
-            return { error: "USSSA API returned no event data" };
-        }
-
-        return data.Events.map(ev => ({
-            event_name: ev.EventName,
-            start_date: ev.StartDate,
-            end_date: ev.EndDate,
-            location: ev.City + ", " + ev.State,
-            sanction: "USSSA",
-        }));
-
-    } catch (err) {
-        console.log("USSSA API error:", err);
-        return { error: err.toString() };
-    }
-}
-
-/* ============================================================
-   PLAYWRIGHT HTML SCRAPER FALLBACK
-   ============================================================ */
-async function scrapeWithPlaywright(url) {
-    let browser;
-
-    try {
-        browser = await chromium.launch({
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-web-security",
-                "--no-zygote",
-                "--single-process"
-            ]
-        });
-
-        const page = await browser.newPage();
-
-        await page.goto(url, {
-            waitUntil: "domcontentloaded",
-            timeout: 60000
-        });
-
-        await wait(5000);
-
-        const html = await page.content();
-
-        return html;
-
-    } catch (err) {
-        return { error: err.toString() };
-    } finally {
-        if (browser) await browser.close();
-    }
-}
-
-/* ============================================================
-   SCRAPE ROUTE (AUTO SELECT BEST METHOD)
-   ============================================================ */
+/* -------------------------------------------------- */
+/* USSSA SCRAPER                                      */
+/* -------------------------------------------------- */
 app.get("/scrape-usssa", async (req, res) => {
-    console.log("USSSA scrape requested…");
+  console.log("\n================ USSSA SCRAPE START ================");
 
-    // 1️⃣ Try API first
-    const apiResult = await scrapeUSSSA_API();
+  let browser;
 
-    if (!apiResult.error) {
-        console.log("USSSA API SUCCESS");
-        return res.json(apiResult);
-    }
-
-    console.log("USSSA API FAILED. Falling back to Playwright…");
-
-    // 2️⃣ Fallback: HTML scrape
-    const html = await scrapeWithPlaywright("https://usssa.com/fastpitch/eventSearch/");
-
-    if (typeof html !== "string") {
-        return res.status(500).json({ error: "Playwright failed", detail: html });
-    }
-
-    const $ = cheerio.load(html);
-
-    const events = [];
-
-    $("tr").each((i, row) => {
-        const cols = $(row).find("td");
-        if (cols.length >= 5) {
-            events.push({
-                event_name: $(cols[0]).text().trim(),
-                start_date: $(cols[1]).text().trim(),
-                end_date: "",
-                location: $(cols[2]).text().trim(),
-                sanction: "USSSA (HTML Fallback)"
-            });
-        }
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ]
     });
 
-    return res.json(events);
+    const context = await browser.newContext({
+      userAgent: UA,
+      viewport: { width: 1280, height: 800 }
+    });
+
+    const page = await context.newPage();
+
+    console.log("→ Navigating to USSSA Event Search");
+    await page.goto(USSSA_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000
+    });
+
+    await sleep(6000);
+
+    const html = await page.content();
+    console.log("→ HTML length:", html.length);
+
+    const $ = cheerio.load(html);
+    const events = [];
+
+    $("table tbody tr").each((_, row) => {
+      const cols = $(row).find("td");
+      if (cols.length >= 4) {
+        events.push({
+          event_name: $(cols[0]).text().trim(),
+          start_date: $(cols[1]).text().trim(),
+          stature: $(cols[2]).text().trim(),
+          location: $(cols[3]).text().trim()
+        });
+      }
+    });
+
+    console.log("→ Events scraped:", events.length);
+
+    await browser.close();
+
+    if (!events.length) {
+      return res.status(404).json({
+        error: "USSSA page loaded but no events parsed",
+        hint: "USSSA may have changed DOM structure"
+      });
+    }
+
+    res.json({
+      source: "playwright-browser",
+      count: events.length,
+      events
+    });
+
+  } catch (err) {
+    if (browser) await browser.close();
+
+    console.error("FATAL SCRAPER ERROR:", err);
+
+    res.status(500).json({
+      error: err.toString()
+    });
+  }
 });
 
-/* ============================================================
-   DEFAULT ROUTE
-   ============================================================ */
-app.get("/", (req, res) => {
-    res.send("Playwright Scraper is running ✔");
+/* -------------------------------------------------- */
+/* DEBUG / SELF-TEST ROUTE                             */
+/* -------------------------------------------------- */
+app.get("/self-test", (req, res) => {
+  res.json({
+    status: "ok",
+    playwright: true,
+    cheerio: true,
+    timestamp: new Date().toISOString()
+  });
 });
 
-/* ============================================================
-   START SERVER
-   ============================================================ */
-const PORT = process.env.PORT || 10000;
+/* -------------------------------------------------- */
 app.listen(PORT, () => {
-    console.log("Playwright scraper service listening on port", PORT);
+  console.log("Playwright scraper service started on port", PORT);
 });

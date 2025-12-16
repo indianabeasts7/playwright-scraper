@@ -2,15 +2,12 @@ FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
-# Copy only package files first (caches install)
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
+RUN npm install --omit=dev
 
-# Install clean production dependencies
-RUN npm install --production
-
-# Copy source code last
 COPY . .
 
+ENV PORT=10000
 EXPOSE 10000
 
-CMD ["node", "index.js"]
+CMD ["npm", "start"]
