@@ -7,12 +7,16 @@ app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
-/**
- * GET /scrape/usssa
- * Example:
- * https://your-app.onrender.com/scrape/usssa
- */
+// Fast health check (Render LOVES this)
+app.get("/", (req, res) => {
+  res.status(200).send("USSSA Playwright Scraper alive ✔");
+});
+
 app.get("/scrape/usssa", async (req, res) => {
+  // 🔥 Tell Render immediately: "I'm alive"
+  res.setHeader("Content-Type", "application/json");
+  res.write(JSON.stringify({ status: "starting scrape..." }));
+
   let browser;
 
   try {
@@ -40,65 +44,61 @@ app.get("/scrape/usssa", async (req, res) => {
 
     let eventsData = null;
 
-    // 🔥 INTERCEPT NETWORK RESPONSES
     page.on("response", async (response) => {
       const url = response.url();
 
-      // USSSA event API endpoints usually contain these keywords
       if (
-        url.includes("event") &&
-        url.includes("search") &&
+        url.toLowerCase().includes("event") &&
         response.request().resourceType() === "xhr"
       ) {
         try {
           const json = await response.json();
-
           if (json && (json.events || json.data)) {
-            console.log("✅ USSSA event API intercepted");
+            console.log("✅ USSSA API intercepted");
             eventsData = json;
           }
-        } catch (err) {
-          // ignore non-JSON responses
-        }
+        } catch {}
       }
     });
 
-    // Load real USSSA page (must be browser-based)
     await page.goto("https://usssa.com/fastpitch/eventSearch", {
       waitUntil: "domcontentloaded",
       timeout: 60000
     });
 
-    // Give JS time to fire API requests
-    await page.waitForTimeout(8000);
+    // Hard wait cap (Render-safe)
+    await page.waitForTimeout(6000);
 
     await browser.close();
 
     if (!eventsData) {
-      return res.status(500).json({
-        error: "USSSA API returned no event data (possible site change)"
-      });
+      return res.end(
+        JSON.stringify({
+          error: "No USSSA event data intercepted",
+          hint: "Site may have changed endpoints"
+        })
+      );
     }
 
-    return res.json({
-      source: "usssa",
-      intercepted: true,
-      data: eventsData
-    });
+    return res.end(
+      JSON.stringify({
+        source: "usssa",
+        intercepted: true,
+        data: eventsData
+      })
+    );
 
   } catch (err) {
     console.error("SCRAPER ERROR:", err);
 
     if (browser) await browser.close();
 
-    return res.status(500).json({
-      error: err.toString()
-    });
+    return res.end(
+      JSON.stringify({
+        error: err.toString()
+      })
+    );
   }
-});
-
-app.get("/", (req, res) => {
-  res.send("Playwright USSSA Intercept Scraper running ✔");
 });
 
 app.listen(PORT, () => {
